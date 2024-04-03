@@ -1,1 +1,3 @@
-# amalekia-csc453_proj1
+### Adrick Malekian
+
+When compiling, type make in the command line then execute with "./schedule"
