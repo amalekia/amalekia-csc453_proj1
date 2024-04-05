@@ -1,23 +1,100 @@
-#include 
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/resource.h>
+#include <sys/time.h>
+#include <signal.h>
+#include <sys/wait.h>
 
-int main(char argc, char* argv[]) {
-    // Parse command line arguments
-    if (strcmp(argv[0], "schedule") != 0) {
-            printf("error: invalid command\n");
-            return 0;
+#define MAX_PROCESSES 100
+#define MAX_ARGS 10
+
+define struct Queue {
+    int front, rear, size;
+    unsigned capacity;
+    int* array;
+};
+
+struct Queue* createQueue(unsigned capacity) {
+    struct Queue* queue = (struct Queue*) malloc(sizeof(struct Queue));
+    queue->capacity = capacity;
+    queue->front = queue->size = 0;
+    queue->rear = capacity - 1;
+    queue->array = (char*) malloc(queue->capacity * (sizeof(char)*100));
+    return queue;
+}
+
+void dequeue(struct Queue* queue) {
+    if (isEmpty(queue)) {
+        perror("error dequeuing from empty queue\n");
     }
+    queue->front = (queue->front + 1) % queue->capacity;
+    queue->size = queue->size - 1;
+}
 
-    int quantum = argv[1];
+void enqueue(struct Queue* queue, int item) {
+    if (isFull(queue)) {
+        perror("error enqueuing to full queue\n");
+    }
+    queue->rear = (queue->rear + 1) % queue->capacity;
+    queue->array[queue->rear] = item;
+    queue->size = queue->size + 1;
+}
 
-    for (int i = 0; i < argc; i++) {
+int main(char* argv[]) {
+    // Parse command line arguments
+    int quantum = atoi(argv[0]);
+
+    char *processArgs[MAX_ARGS];
+    for (int i = 0; i < MAX_ARGS; i++) {
+        processArgs[i] = (char*) malloc(100 * sizeof(char));
+    }
+    int processArgsIndex = 0;
+
+    struct Queue* processQueue = createQueue(MAX_PROCESSES);
+
+    for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], ":") == 0) {
-            printf("Usage: schedule [schedule file]\n");
-            return 0;
+            enqueue(processQueue, processArgs[processArgsIndex]);
+            processArgsIndex = 0;
+        }
+        else {
+            strcpy(processArgs[processArgsIndex], argv[i]);
+            processArgsIndex++;
         }
     }
 
-    // Read in the schedule file
-    // Create a schedule object
-    // Print the schedule
-    // Return 0
+    //scheduling and executing processes
+    pid_t *childlist[MAX_PROCESSES];
+    int i = 0;
+
+    while ((childpid = fork()) != 0 & i < MAX_PROCESSES) {
+        if (childpid == 0) {
+            raise(SIGSTOP);
+            execvp(args[0], args);
+            perror("");
+            exit(1);
+        }
+        else {
+            childlist[i] = childpid;
+        }
+        i++;
+    }
+
+    for (int i = 0; i < size(pidlist); i++) {
+        struct itimerval timer;
+        timer.it_interval.tv_usec = 0;
+        timer.it_interval.tv_sec = 0;
+        timer.it_value.tv_sec = quantum / 1000;
+        timer.it_value.tv_usec = 0;
+
+        kill(pidlist[i], SIGCONT);
+        if(setitimer(ITIMER_REAL, &timer, NULL) == SIGALRM){
+            kill(pidlist[i], SIGSTOP);
+        }
+        kill(pidlist[i], SIGSTOP);
+    }
+    free(processQueue);
+    return 0;
 }
