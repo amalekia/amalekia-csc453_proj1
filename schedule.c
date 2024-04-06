@@ -52,17 +52,15 @@ void enqueue(struct Queue* queue, char** item) {
 
 int main(int argc, char* argv[]) {
     // Parse command line arguments
-    //int quantum = atoi(argv[0]);
+    int quantum = atoi(argv[1]);
     
     // Parsing command line arguments and grouping them into arrays
     struct Queue* queue = createQueue(MAX_PROCESSES);
     char *argArray[MAX_ARGS];
-    printf("%d", argc);
 
     int argCount = 0;
-    for (int i = 1; i < argc; ++i) {
+    for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], ":") == 0) {
-            printf("gothere");
             argArray[argCount] = NULL; // Mark end of argument list
             char **newArgArray = (char **)malloc((argCount + 1) * sizeof(char*));
             memcpy(newArgArray, argArray, (argCount + 1) * sizeof(char*));
@@ -78,6 +76,8 @@ int main(int argc, char* argv[]) {
         memcpy(newArgArray, argArray, (argCount + 1) * sizeof(char*));
         enqueue(queue, newArgArray);
     }
+    printf("Time Quantum: %d\n", quantum);
+    printf("First element: %s\n", queue->array[2][0]);
 
     //scheduling and executing processes
     // pid_t childlist[MAX_PROCESSES];
@@ -85,7 +85,7 @@ int main(int argc, char* argv[]) {
     // int sizeChildList = 0;
 
     // int i = 0;
-    // while ((childpid = fork()) != 0 && i < MAX_PROCESSES) {
+    // while ((childpid = fork()) != 0 && i < queue->size) {
     //     if (childpid == 0) {
     //         raise(SIGSTOP);
     //         execvp(queue->front, args);
@@ -113,7 +113,14 @@ int main(int argc, char* argv[]) {
     //     kill(childlist[i], SIGSTOP);
     // }
 
+    //frees list of args
+    for (int i = 0; i < queue->size; i++) {
+        free(queue->array[i]);
+    }
+    //frees list of arg-list pointers
     free(queue->array);
+
+    //frees pointer to queue
     free(queue);
     return 0;
 }
