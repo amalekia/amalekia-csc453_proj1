@@ -14,40 +14,76 @@
 #define MAX_PROCESSES 100
 #define MAX_ARGS 10
 
-struct Queue {
-    int front, rear, size;
-    unsigned capacity;
-    char*** array;
-};
+typedef struct Node {
+    char** args;
+    char* funcname;
+    pid_t pid;
+    struct Node* next;
+} Node;
 
-struct Queue* createQueue(unsigned capacity) {
-    struct Queue* queue = (struct Queue*) malloc(sizeof(struct Queue));
-    queue->capacity = capacity;
-    queue->front = queue->size = 0;
-    queue->rear = capacity - 1;
-    queue->array = (char***) malloc(queue->capacity * sizeof(char**));
+typedef struct Queue {
+    Node *front, *rear;
+    unsigned capacity;
+} Queue;
+
+Node* createNode(char **stringList, int pid, char *name) {
+    Node *newNode = (Node*)malloc(sizeof(Node));
+    if (newNode == NULL) {
+        printf("Memory allocation failed.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    newNode->args = stringList;
+    newNode->pid = pid;
+    newNode->funcname = strdup(name);
+    newNode->next = NULL;
+    return newNode;
+}
+
+Queue* createQueue() {
+    Queue *queue = (Queue*)malloc(sizeof(Queue));
+    if (queue == NULL) {
+        perror("Memory allocation failed.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    queue->front = queue->rear = NULL;
     return queue;
 }
 
-char** dequeue(struct Queue* queue) {
-    if (queue->size == 0) {
-        perror("error dequeuing from empty queue\n");
-        return NULL;
+void enqueue(Queue *queue, Node *newNode) {
+    if (queue->rear == NULL) {
+        queue->front = queue->rear = newNode;
+    } else {
+        queue->rear->next = newNode;
+        queue->rear = newNode;
     }
-    char** item = queue->array[queue->front];
-    queue->front = (queue->front + 1) % queue->capacity;
-    queue->size = queue->size - 1;
-    return item;
 }
 
-void enqueue(struct Queue* queue, char** item) {
-    if (queue->size == queue->capacity) {
-        perror("error enqueuing to full queue\n");
-        return;
+Node* dequeue(Queue *queue) {
+    if (queue->front == NULL) {
+        printf("Queue is empty.\n");
+        return NULL;
     }
-    queue->rear = (queue->rear + 1) % queue->capacity;
-    queue->array[queue->rear] = item;
-    queue->size = queue->size + 1;
+
+    Node *temp = queue->front;
+    queue->front = queue->front->next;
+
+    if (queue->front == NULL) {
+        queue->rear = NULL;
+    }
+
+    return temp;
+}
+
+void freeQueue(Queue *queue) {
+    while (queue->front != NULL) {
+        Node *temp = dequeue(queue);
+        free(temp->funcname);
+        free(temp->args);
+        free(temp);
+    }
+    free(queue);
 }
 
 int main(int argc, char* argv[]) {
@@ -64,7 +100,7 @@ int main(int argc, char* argv[]) {
             argArray[argCount] = NULL; // Mark end of argument list
             char **newArgArray = (char **)malloc((argCount + 1) * sizeof(char*));
             memcpy(newArgArray, argArray, (argCount + 1) * sizeof(char*));
-            enqueue(queue, newArgArray);
+            enqueue(queue, createNode(newArgArray, 0, newArgArray[0]));
             argCount = 0; // Reset count for next group
         } else {
             argArray[argCount++] = argv[i];
@@ -74,10 +110,10 @@ int main(int argc, char* argv[]) {
         argArray[argCount] = NULL;
         char **newArgArray = (char **)malloc((argCount + 1) * sizeof(char*));
         memcpy(newArgArray, argArray, (argCount + 1) * sizeof(char*));
-        enqueue(queue, newArgArray);
+        enqueue(queue, createNode(newArgArray, 0, newArgArray[0]));
     }
     printf("Time Quantum: %d\n", quantum);
-    printf("First element: %s\n", queue->array[2][0]);
+    printf("First element: %s\n", queue->front->funcname);
 
     //scheduling and executing processes
     // pid_t childlist[MAX_PROCESSES];
@@ -113,14 +149,7 @@ int main(int argc, char* argv[]) {
     //     kill(childlist[i], SIGSTOP);
     // }
 
-    //frees list of args
-    for (int i = 0; i < queue->size; i++) {
-        free(queue->array[i]);
-    }
-    //frees list of arg-list pointers
-    free(queue->array);
-
     //frees pointer to queue
-    free(queue);
+    freeQueue(queue);
     return 0;
 }
