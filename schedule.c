@@ -18,6 +18,7 @@ typedef struct Node {
     char** args;
     char* funcname;
     pid_t pid;
+    int status;
     struct Node* next;
 } Node;
 
@@ -26,6 +27,10 @@ typedef struct Queue {
     unsigned capacity;
 } Queue;
 
+pid_t childpid;
+int status;
+
+//creates a new process (Node*) with the given arguments
 Node* createNode(char **stringList, int pid, char *name) {
     Node *newNode = (Node*)malloc(sizeof(Node));
     if (newNode == NULL) {
@@ -40,6 +45,7 @@ Node* createNode(char **stringList, int pid, char *name) {
     return newNode;
 }
 
+//creates a new queue
 Queue* createQueue() {
     Queue *queue = (Queue*)malloc(sizeof(Queue));
     if (queue == NULL) {
@@ -48,18 +54,28 @@ Queue* createQueue() {
     }
 
     queue->front = queue->rear = NULL;
+    queue->capacity = MAX_PROCESSES;
     return queue;
 }
 
+//enqueues a new process (Node*) into the queue
 void enqueue(Queue *queue, Node *newNode) {
-    if (queue->rear == NULL) {
-        queue->front = queue->rear = newNode;
-    } else {
-        queue->rear->next = newNode;
-        queue->rear = newNode;
+    if (queue->rear != NULL && queue->capacity == 0) {
+        printf("Queue is full.\n");
+        return;
+    }
+    else {
+        if (queue->rear == NULL) {
+            queue->front = queue->rear = newNode;
+        } else {
+            queue->rear->next = newNode;
+            queue->rear = newNode;
+        }
+        queue->capacity--;
     }
 }
 
+//dequeues a process (Node*) from the queue and returns it
 Node* dequeue(Queue *queue) {
     if (queue->front == NULL) {
         printf("Queue is empty.\n");
@@ -76,6 +92,7 @@ Node* dequeue(Queue *queue) {
     return temp;
 }
 
+//frees entire queue and all nodes
 void freeQueue(Queue *queue) {
     while (queue->front != NULL) {
         Node *temp = dequeue(queue);
@@ -86,12 +103,30 @@ void freeQueue(Queue *queue) {
     free(queue);
 }
 
+//signal handling functions
+void handle_alrm_action(){
+    printf("Timer expired. Killing process\n");
+    kill(childpid, SIGSTOP);
+}
+
+void handle_chld_action(){
+    //set a new timer and set it to 0 ms
+    struct itimerval timer;
+    timer.it_interval.tv_usec = 0;
+    timer.it_interval.tv_sec = 0;
+    timer.it_value.tv_sec = 0;
+    timer.it_value.tv_usec = 0;
+    setitimer(ITIMER_REAL, &timer, NULL);
+}
+
+//main program (scheduling function)
 int main(int argc, char* argv[]) {
+    
     // Parse command line arguments
     int quantum = atoi(argv[1]);
     
     // Parsing command line arguments and grouping them into arrays
-    struct Queue* queue = createQueue(MAX_PROCESSES);
+    struct Queue* queue = createQueue();
     char *argArray[MAX_ARGS];
 
     int argCount = 0;
@@ -102,8 +137,15 @@ int main(int argc, char* argv[]) {
             memcpy(newArgArray, argArray, (argCount + 1) * sizeof(char*));
             enqueue(queue, createNode(newArgArray, 0, newArgArray[0]));
             argCount = 0; // Reset count for next group
-        } else {
-            argArray[argCount++] = argv[i];
+        } 
+        else {
+            if (argCount == MAX_ARGS + 1) {
+                perror("Too many arguments\n");
+                exit(EXIT_FAILURE);
+            }
+            else {
+                argArray[argCount++] = argv[i];
+            }
         }
     }
     if (argCount > 0) {
@@ -112,42 +154,62 @@ int main(int argc, char* argv[]) {
         memcpy(newArgArray, argArray, (argCount + 1) * sizeof(char*));
         enqueue(queue, createNode(newArgArray, 0, newArgArray[0]));
     }
-    printf("Time Quantum: %d\n", quantum);
-    printf("First element: %s\n", queue->front->funcname);
 
     //scheduling and executing processes
-    // pid_t childlist[MAX_PROCESSES];
-    // pid_t childpid;
-    // int sizeChildList = 0;
 
-    // int i = 0;
-    // while ((childpid = fork()) != 0 && i < queue->size) {
-    //     if (childpid == 0) {
-    //         raise(SIGSTOP);
-    //         execvp(queue->front, args);
-    //         perror("error when executing process\n");
-    //         exit(1);
-    //     }
-    //     else {
-    //         childlist[i] = childpid;
-    //         sizeChildList++;
-    //     }
-    //     i++;
-    // }
+    Node* curr = queue->front;
+    while (curr != NULL) {
+        childpid = fork();
 
-    // for (int i = 0; i < sizeChildList; i++) {
-    //     struct itimerval timer;
-    //     timer.it_interval.tv_usec = 0;
-    //     timer.it_interval.tv_sec = 0;
-    //     timer.it_value.tv_sec = quantum / 1000;
-    //     timer.it_value.tv_usec = 0;
+        if (childpid == 0) {
+            raise(SIGSTOP);
+            execvp(strcat("./", curr->funcname), &(curr->args[1]));
+            perror("error when executing process\n");
+            exit(1);
+        }
+        else {
+            curr->pid = childpid;
+        }
+        curr = curr->next;
+    }
 
-    //     kill(childlist[i], SIGCONT);
-    //     if(setitimer(ITIMER_REAL, &timer, NULL) == SIGALRM){   // halts the child based on the time quantum
-    //         kill(childlist[i], SIGSTOP);     
-    //     }
-    //     kill(childlist[i], SIGSTOP);
-    // }
+    if (childpid > 0) {
+        // Set up the signal handlers in the parent process
+        signal(SIGALRM, handle_alrm_action);
+        signal(SIGCHLD, handle_chld_action);
+
+        while (queue->front != NULL) { 
+            struct itimerval timer;
+            timer.it_interval.tv_usec = 0;
+            timer.it_interval.tv_sec = 0;
+            timer.it_value.tv_sec = quantum / 1000;
+            timer.it_value.tv_usec = 0;
+
+            //dequeues a process from queue and starts that process along with the timer
+            Node* process = dequeue(queue);
+            childpid = process->pid;
+            printf("%d\n", childpid);
+            kill(childpid, SIGCONT);
+            setitimer(ITIMER_REAL, &timer, NULL);
+
+            if (waitpid(process->pid, &status, WNOHANG) == -1) {
+                perror("Error waiting for child process\n");
+                exit(EXIT_FAILURE);
+            }
+            else {
+                if (WIFEXITED(status)) {
+                    //child terminated normally
+                    free(process->args);
+                    free(process->funcname);  
+                    free(process);
+                }
+                else {
+                    //enqueues the process back into the queue
+                    enqueue(queue, process);
+                }
+            }
+        }
+    }
 
     //frees pointer to queue
     freeQueue(queue);
