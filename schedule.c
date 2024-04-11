@@ -19,7 +19,6 @@ typedef struct Node {
     char** args;
     char* funcname;
     pid_t pid;
-    int status;
     struct Node* next;
 } Node;
 
@@ -101,6 +100,10 @@ void freeQueue(Queue *queue) {
     while (queue->front != NULL) {
         Node *temp = dequeue(queue);
         free(temp->funcname);
+        // Free the array of arguments
+        for (int i = 0; temp->args[i] != NULL; i++) {
+            free(temp->args[i]);
+        }
         free(temp->args);
         free(temp);
     }
@@ -110,7 +113,6 @@ void freeQueue(Queue *queue) {
 //signal handling functions
 void handle_alrm_action(){
     flag = 1;
-    // printf("Timer expired. Killing process\n");
 }
 
 //main program (scheduling function)
@@ -120,7 +122,7 @@ int main(int argc, char* argv[]) {
     int quantum = atoi(argv[1]);
     
     // Parsing command line arguments and grouping them into arrays
-    struct Queue* queue = createQueue();
+    Queue* queue = createQueue();
     char *argArray[MAX_ARGS];
 
     int argCount = 0;
@@ -153,7 +155,6 @@ int main(int argc, char* argv[]) {
     Node* curr = queue->front;
     while (curr != NULL) {
         childpid = fork();
-
         if (childpid == 0) {
             raise(SIGSTOP);
             char funcname[80];
@@ -169,12 +170,7 @@ int main(int argc, char* argv[]) {
         curr = curr->next;
     }
 
-    // printf("First pid:%d\n", queue->front->pid);
-    // printf("Second pid:%d\n", queue->front->next->pid);
-    // printf("Third pid:%d\n\n", queue->front->next->next->pid);
-
     while (queue->front != NULL) { 
-
         //setup SIGALRM Handler
         struct sigaction sactA;
         if(sigemptyset(&sactA.sa_mask) == -1){
@@ -188,19 +184,6 @@ int main(int argc, char* argv[]) {
             exit(1);
         }
 
-        //setup SIGCHLD Handler
-        // struct sigaction sactC;
-        // if(sigemptyset(&sactC.sa_mask) == -1){
-        //     perror("Sigaction failed");
-        //     exit(1);
-        // }
-        // sactC.sa_handler = handle_chld_action;
-        // sactC.sa_flags = 0;
-        // if(sigaction(SIGCHLD, &sactC, NULL) == -1){
-        //     perror("Sigaction failed");
-        //     exit(1);
-        // }
-
         //set timer
         struct itimerval timer;
         timer.it_interval.tv_usec = 0;
@@ -211,19 +194,20 @@ int main(int argc, char* argv[]) {
         //dequeues a process from queue and starts that process along with the timer
         Node* process = dequeue(queue);
         childpid = process->pid;
-        // printf("process pid:%d\n", childpid);
         kill(childpid, SIGCONT);
         setitimer(ITIMER_REAL, &timer, NULL);
 
-        //pause();
-        waitpid(process->pid, &status, 0);
+        waitpid(process->pid, &status, WUNTRACED);
 
-        if (WIFSIGNALED(status)) {
+        if (flag == 1) {
             //enqueues the process back into the queue
             kill(childpid, SIGSTOP);
-            enqueue(queue, process);
+            enqueue(queue, createNode(process->args, process->pid, process->funcname));
+            free(process->funcname);
+            free(process);
+            flag = 0;
         }
-        else if (WIFEXITED(status)) {
+        else {
             //child terminated normally
             timer.it_interval.tv_usec = 0;
             timer.it_interval.tv_sec = 0;
@@ -231,35 +215,11 @@ int main(int argc, char* argv[]) {
             timer.it_value.tv_usec = 0;
             setitimer(ITIMER_REAL, &timer, NULL);
 
+            free(process->funcname);   
             free(process->args);
-            free(process->funcname);  
             free(process);
         }
-        // if (flag == 1) {
-        //     //enqueues the process back into the queue
-        //     kill(childpid, SIGSTOP);
-        //     enqueue(queue, process);
-        //     flag = 0;
-        // }
-        // else {
-        //     if (waitpid(process->pid, &status, WNOHANG) == -1) {
-        //         perror("Error waiting for child process\n");
-        //         exit(EXIT_FAILURE);
-        //     }
-
-        //     //child terminated normally
-        //     timer.it_interval.tv_usec = 0;
-        //     timer.it_interval.tv_sec = 0;
-        //     timer.it_value.tv_sec = 0;
-        //     timer.it_value.tv_usec = 0;
-        //     setitimer(ITIMER_REAL, &timer, NULL);
-
-        //     free(process->args);
-        //     free(process->funcname);  
-        //     free(process);
-        // }
     }
-
     //frees pointer to queue
     freeQueue(queue);
     return 0;
