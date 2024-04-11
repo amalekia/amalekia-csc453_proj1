@@ -133,7 +133,7 @@ int main(int argc, char* argv[]) {
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], ":") == 0) {
             argArray[argCount] = NULL; // Mark end of argument list
-            char **newArgArray = (char **)malloc((argCount + 1) * sizeof(char*));
+            char **newArgArray = (char **) malloc((argCount + 1) * sizeof(char*));
             memcpy(newArgArray, argArray, (argCount + 1) * sizeof(char*));
             enqueue(queue, createNode(newArgArray, 0, newArgArray[0]));
             argCount = 0; // Reset count for next group
@@ -162,12 +162,19 @@ int main(int argc, char* argv[]) {
         childpid = fork();
 
         if (childpid == 0) {
-            raise(SIGSTOP);
-            execvp(strcat("./", curr->funcname), &(curr->args[1]));
+            //raise(SIGSTOP);
+            char funcname[30];
+            strcpy(funcname, "./");
+            strcat(funcname, curr->funcname);
+            // printf("%s\n", funcname);
+            // printf("%s\n", curr->args[0]);
+            // printf("%s\n", curr->args[1]);
+            execv(funcname, curr->args);
             perror("error when executing process\n");
             exit(1);
         }
         else {
+            wait(NULL);
             curr->pid = childpid;
         }
         curr = curr->next;
