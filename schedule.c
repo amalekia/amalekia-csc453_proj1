@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <math.h>
 #include <stdlib.h>
 #include <sys/wait.h>
 #include <sys/types.h>
@@ -29,6 +30,7 @@ typedef struct Queue {
 
 pid_t childpid;
 int status;
+int flag = 0;
 
 //creates a new process (Node*) with the given arguments
 Node* createNode(char **stringList, int pid, char *name) {
@@ -89,6 +91,8 @@ Node* dequeue(Queue *queue) {
         queue->rear = NULL;
     }
 
+    queue->capacity++;
+
     return temp;
 }
 
@@ -105,19 +109,8 @@ void freeQueue(Queue *queue) {
 
 //signal handling functions
 void handle_alrm_action(){
-    printf("Timer expired. Killing process\n");
-    kill(childpid, SIGSTOP);
-}
-
-void handle_chld_action(){
-    //set a new timer and set it to 0 ms
-    printf("Child process terminated\n");
-    struct itimerval timer;
-    timer.it_interval.tv_usec = 0;
-    timer.it_interval.tv_sec = 0;
-    timer.it_value.tv_sec = 0;
-    timer.it_value.tv_usec = 0;
-    setitimer(ITIMER_REAL, &timer, NULL);
+    flag = 1;
+    // printf("Timer expired. Killing process\n");
 }
 
 //main program (scheduling function)
@@ -156,7 +149,7 @@ int main(int argc, char* argv[]) {
         enqueue(queue, createNode(newArgArray, 0, newArgArray[0]));
     }
 
-    //scheduling and executing processes
+    // scheduling and executing processes
     Node* curr = queue->front;
     while (curr != NULL) {
         childpid = fork();
@@ -176,43 +169,95 @@ int main(int argc, char* argv[]) {
         curr = curr->next;
     }
 
-    if (childpid > 0) {
-        // Set up the signal handlers in the parent process
-        signal(SIGALRM, handle_alrm_action);
-        signal(SIGCHLD, handle_chld_action);
+    // printf("First pid:%d\n", queue->front->pid);
+    // printf("Second pid:%d\n", queue->front->next->pid);
+    // printf("Third pid:%d\n\n", queue->front->next->next->pid);
 
-        while (queue->front != NULL) { 
-            struct itimerval timer;
+    while (queue->front != NULL) { 
+
+        //setup SIGALRM Handler
+        struct sigaction sactA;
+        if(sigemptyset(&sactA.sa_mask) == -1){
+            perror("Sigaction failed");
+            exit(1);
+        }
+        sactA.sa_handler = handle_alrm_action;
+        sactA.sa_flags = 0;
+        if(sigaction(SIGALRM, &sactA, NULL) == -1){
+            perror("Sigaction failed");
+            exit(1);
+        }
+
+        //setup SIGCHLD Handler
+        // struct sigaction sactC;
+        // if(sigemptyset(&sactC.sa_mask) == -1){
+        //     perror("Sigaction failed");
+        //     exit(1);
+        // }
+        // sactC.sa_handler = handle_chld_action;
+        // sactC.sa_flags = 0;
+        // if(sigaction(SIGCHLD, &sactC, NULL) == -1){
+        //     perror("Sigaction failed");
+        //     exit(1);
+        // }
+
+        //set timer
+        struct itimerval timer;
+        timer.it_interval.tv_usec = 0;
+        timer.it_interval.tv_sec = 0;
+        timer.it_value.tv_sec = quantum / 1000;
+        timer.it_value.tv_usec = (quantum % 1000) * 1000;
+
+        //dequeues a process from queue and starts that process along with the timer
+        Node* process = dequeue(queue);
+        childpid = process->pid;
+        // printf("process pid:%d\n", childpid);
+        kill(childpid, SIGCONT);
+        setitimer(ITIMER_REAL, &timer, NULL);
+
+        //pause();
+        waitpid(process->pid, &status, 0);
+
+        if (WIFSIGNALED(status)) {
+            //enqueues the process back into the queue
+            kill(childpid, SIGSTOP);
+            enqueue(queue, process);
+        }
+        else if (WIFEXITED(status)) {
+            //child terminated normally
             timer.it_interval.tv_usec = 0;
             timer.it_interval.tv_sec = 0;
-            timer.it_value.tv_sec = quantum / 1000;
+            timer.it_value.tv_sec = 0;
             timer.it_value.tv_usec = 0;
-
-            //dequeues a process from queue and starts that process along with the timer
-            Node* process = dequeue(queue);
-            childpid = process->pid;
-            kill(childpid, SIGCONT);
             setitimer(ITIMER_REAL, &timer, NULL);
-            
-            pause();
 
-            if (waitpid(process->pid, &status, WNOHANG) == -1) {
-                perror("Error waiting for child process\n");
-                exit(EXIT_FAILURE);
-            }
-            else {
-                if (WIFEXITED(status)) {
-                    //child terminated normally
-                    free(process->args);
-                    free(process->funcname);  
-                    free(process);
-                }
-                else {
-                    //enqueues the process back into the queue
-                    enqueue(queue, process);
-                }
-            }
+            free(process->args);
+            free(process->funcname);  
+            free(process);
         }
+        // if (flag == 1) {
+        //     //enqueues the process back into the queue
+        //     kill(childpid, SIGSTOP);
+        //     enqueue(queue, process);
+        //     flag = 0;
+        // }
+        // else {
+        //     if (waitpid(process->pid, &status, WNOHANG) == -1) {
+        //         perror("Error waiting for child process\n");
+        //         exit(EXIT_FAILURE);
+        //     }
+
+        //     //child terminated normally
+        //     timer.it_interval.tv_usec = 0;
+        //     timer.it_interval.tv_sec = 0;
+        //     timer.it_value.tv_sec = 0;
+        //     timer.it_value.tv_usec = 0;
+        //     setitimer(ITIMER_REAL, &timer, NULL);
+
+        //     free(process->args);
+        //     free(process->funcname);  
+        //     free(process);
+        // }
     }
 
     //frees pointer to queue
