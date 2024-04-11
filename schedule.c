@@ -111,6 +111,7 @@ void handle_alrm_action(){
 
 void handle_chld_action(){
     //set a new timer and set it to 0 ms
+    printf("Child process terminated\n");
     struct itimerval timer;
     timer.it_interval.tv_usec = 0;
     timer.it_interval.tv_sec = 0;
@@ -156,25 +157,20 @@ int main(int argc, char* argv[]) {
     }
 
     //scheduling and executing processes
-
     Node* curr = queue->front;
     while (curr != NULL) {
         childpid = fork();
 
         if (childpid == 0) {
-            //raise(SIGSTOP);
-            char funcname[30];
+            raise(SIGSTOP);
+            char funcname[80];
             strcpy(funcname, "./");
             strcat(funcname, curr->funcname);
-            // printf("%s\n", funcname);
-            // printf("%s\n", curr->args[0]);
-            // printf("%s\n", curr->args[1]);
             execv(funcname, curr->args);
             perror("error when executing process\n");
             exit(1);
         }
         else {
-            wait(NULL);
             curr->pid = childpid;
         }
         curr = curr->next;
@@ -195,9 +191,10 @@ int main(int argc, char* argv[]) {
             //dequeues a process from queue and starts that process along with the timer
             Node* process = dequeue(queue);
             childpid = process->pid;
-            printf("%d\n", childpid);
             kill(childpid, SIGCONT);
             setitimer(ITIMER_REAL, &timer, NULL);
+            
+            pause();
 
             if (waitpid(process->pid, &status, WNOHANG) == -1) {
                 perror("Error waiting for child process\n");
