@@ -157,10 +157,7 @@ int main(int argc, char* argv[]) {
         childpid = fork();
         if (childpid == 0) {
             raise(SIGSTOP);
-            char funcname[80];
-            strcpy(funcname, "./");
-            strcat(funcname, curr->funcname);
-            execv(funcname, curr->args);
+            execv(curr->funcname, curr->args);
             perror("error when executing process\n");
             exit(1);
         }
@@ -194,8 +191,8 @@ int main(int argc, char* argv[]) {
         //dequeues a process from queue and starts that process along with the timer
         Node* process = dequeue(queue);
         childpid = process->pid;
-        kill(childpid, SIGCONT);
         setitimer(ITIMER_REAL, &timer, NULL);
+        kill(childpid, SIGCONT);
 
         waitpid(process->pid, &status, WUNTRACED);
 
