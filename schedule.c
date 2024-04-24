@@ -156,7 +156,9 @@ int main(int argc, char* argv[]) {
     while (curr != NULL) {
         childpid = fork();
         if (childpid == 0) {
-            raise(SIGSTOP);
+            if (queue->capacity < MAX_PROCESSES - 1) {
+                raise(SIGSTOP);
+            }
             execv(curr->funcname, curr->args);
             perror("error when executing process\n");
             exit(1);
